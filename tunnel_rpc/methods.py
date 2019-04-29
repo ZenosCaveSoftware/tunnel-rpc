@@ -111,5 +111,6 @@ def run(request=None):
     commands = request.get("commands", [])
     lines = eval_commands(api_client, container, commands, source_base64)
     results = parse_output(lines)
+    strm, stat = api_client.get_archive(container, '/app/src')
     api_client.remove_container(container)
     return results
