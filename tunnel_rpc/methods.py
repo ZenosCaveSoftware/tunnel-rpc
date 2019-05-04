@@ -65,6 +65,7 @@ def eval_commands(api_client, container, commands, source_base64=None):
         os.write(file_descriptor, cmd.encode("utf-8"))
     socket.close()
 
+    archive = archiver(api_client, container)
     api_client.stop(container)
     api_client.wait(container)
 
@@ -94,6 +95,11 @@ def parse_output(output):
     return commands
 
 
+def archiver(api_client, container):
+    strm, stat = api_client.get_archive(container, '/app/src')
+    return stat
+
+
 def run(request=None):
     """Runs commands in a docker container and parses the log output.
 
@@ -106,11 +112,9 @@ def run(request=None):
     """
     api_client = APIClient()
     container = create_container(api_client)
-
     source_base64 = request.get("source", None)
     commands = request.get("commands", [])
     lines = eval_commands(api_client, container, commands, source_base64)
     results = parse_output(lines)
-    strm, stat = api_client.get_archive(container, '/app/src')
     api_client.remove_container(container)
     return results
