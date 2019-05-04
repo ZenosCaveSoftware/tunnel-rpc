@@ -113,7 +113,7 @@ def retrieve_archive_base64(api_client, container, distribution_config):
     artifacts = distribution_config.get("artifacts", [])
 
     def _is_artifact(member):
-        return any(fnmatch(member.name, artifact) for artifact in artifacts)
+        return any(fnmatch(member.name, os.path.join(base_path, artifact)) for artifact in artifacts)
 
     if not artifacts:
         return None
@@ -138,8 +138,7 @@ def retrieve_archive_base64(api_client, container, distribution_config):
     ) as out_stream:
         for member in members:
             out_stream.addfile(member)
-    return b64encode(out_obj.getvalue())
-
+    return b64encode(out_obj.getvalue()).decode('utf-8')
 
 def run(request=None):
     """Runs commands in a docker container and parses the log output.
