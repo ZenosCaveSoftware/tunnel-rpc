@@ -3,7 +3,6 @@
 
 """
 from __future__ import print_function
-import sys
 from flask import Flask, request, Response
 from jsonrpcserver import dispatch, method
 from tunnel_rpc.methods import run
@@ -34,7 +33,6 @@ def create_app():
         """
         req = request.get_data().decode()
         response = dispatch(req, debug=True)
-        print(req, response, file=sys.stderr)
         return Response(
             str(response), response.http_status, mimetype="application/json"
         )

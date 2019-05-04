@@ -9,7 +9,8 @@ services:
 addons:
   sonarcloud:
     organization: zenoscave
-    token: "$SONAR_TOKEN"
+    token: 
+      secure: "$SONAR_TOKEN"
 
 before_install:
   - bash ./prestart.sh
@@ -23,8 +24,9 @@ script:
   - make -C docs linkcheck
   - coverage erase
   - coverage run --branch --source=tunnel_rpc -m pytest
-  - coverage xml -i
+  - coverage report -m
 
 after_success:
+  - coverage xml -i
   - sonar-scanner
   - codecov

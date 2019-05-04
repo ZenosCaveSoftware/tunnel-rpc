@@ -5,9 +5,7 @@
 from tunnel_rpc.methods import eval_commands, parse_output, run
 
 
-def test_eval_commands(
-        docker_api_client, tunnel_container_factory, tarball64_factory
-):
+def test_eval_commands(docker_client, container_factory, tarball64_factory):
     """Tests the command evaluation method.
 
     eval_commands should return a string
@@ -15,26 +13,26 @@ def test_eval_commands(
     eval_commands should extract tarballs correctly for the container
 
     """
-    ls_container = tunnel_container_factory()
-    ls_logs = eval_commands(docker_api_client, ls_container, ["ls"])
+    ls_container = container_factory()
+    ls_logs = eval_commands(docker_client, ls_container, ["ls"])
     assert isinstance(ls_logs, str), "eval_commands should return a string"
 
-    stdout_container = tunnel_container_factory()
+    stdout_container = container_factory()
     stdout_logs = eval_commands(
-        docker_api_client, stdout_container, ["echo 43"]
+        docker_client, stdout_container, ["echo 43"]
     )
     assert "43" in stdout_logs, "eval_commands should contain stdout"
 
-    stderr_container = tunnel_container_factory()
+    stderr_container = container_factory()
     stderr_logs = eval_commands(
-        docker_api_client, stderr_container, ["echo 43 1>&2"]
+        docker_client, stderr_container, ["echo 43 1>&2"]
     )
     assert "43" in stderr_logs, "eval_commands should contain stderr"
 
     tarball_base64 = tarball64_factory({"test_file.txt": "43"})
-    tarball_container = tunnel_container_factory()
+    tarball_container = container_factory()
     tarball_logs = eval_commands(
-        docker_api_client,
+        docker_client,
         tarball_container,
         ["ls test_file.txt"],
         source_base64=tarball_base64,
@@ -85,6 +83,7 @@ def test_run():
         run({"commands": ["ls"], "foo": "bar"})
         run({"foo": "bar"})
         run({"commands": ["false"]})
-        run({"commands": []})
+        run({"commands": [], "dist": {"artifacts": ["*.txt"]}})
+        run({"commands": [], "dist": {"artifacts": ["*"]}})
     except Exception as err:  # pylint: disable=broad-except
-        assert False, str(err)
+        raise AssertionError(err)
