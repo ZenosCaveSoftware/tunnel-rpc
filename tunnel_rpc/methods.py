@@ -11,9 +11,13 @@
 """
 import os
 import re
-from base64 import b64decode
+import tarfile
+from io import BytesIO
+from fnmatch import fnmatch
+from base64 import b64decode, b64encode
 from collections import defaultdict
 from docker import APIClient
+
 
 __all__ = ["run"]
 
@@ -29,7 +33,7 @@ def create_container(api_client):
 
     """
     return api_client.create_container(
-        image="zenoscave/tunnel-runner:latest", stdin_open=True, tty=True
+        image="zenoscave/tunnel-runner:latest", stdin_open=True
     )
 
 
@@ -59,14 +63,12 @@ def eval_commands(api_client, container, commands, source_base64=None):
     )
     file_descriptor = socket.fileno()
 
-    for cmd in commands:
-        cmd = cmd.replace('\n', ' ; ')
+    for cmd in commands + ["exit"]:
+        cmd = cmd.replace("\n", " ; ")
         cmd += "\n"
         os.write(file_descriptor, cmd.encode("utf-8"))
     socket.close()
 
-    archive = archiver(api_client, container)
-    api_client.stop(container)
     api_client.wait(container)
 
     return api_client.logs(container, stdout=True, stderr=True).decode()
@@ -95,9 +97,48 @@ def parse_output(output):
     return commands
 
 
-def archiver(api_client, container):
-    strm, stat = api_client.get_archive(container, '/app/src')
-    return stat
+def retrieve_archive_base64(api_client, container, distribution_config):
+    """Retrieves any artifacts for distribution from a container after running
+
+    Args:
+        api_client (APIClient): API interaction client for a Docker host
+        container (str): Container's ID used to run the commands
+        distribution_config (dict): The specified distribution config
+
+    Returns:
+        (str) base64 encoded tarball stream containing distribution artifacts
+
+    """
+    base_path = distribution_config.get("base_path", "")
+    artifacts = distribution_config.get("artifacts", [])
+
+    def _is_artifact(member):
+        return any(fnmatch(member.name, artifact) for artifact in artifacts)
+
+    if not artifacts:
+        return None
+
+    strm, _ = api_client.get_archive(
+        container, os.path.join("/app/src", base_path)
+    )
+
+    members = []
+    
+    for obj in strm:
+        tar_stream = tarfile.TarFile(fileobj=BytesIO(obj))
+        members += [
+            member
+            for member in tar_stream.getmembers()
+            if _is_artifact(member)
+        ]
+    
+    out_obj = BytesIO()
+    with tarfile.TarFile(
+            "output.tgz", "w", fileobj=out_obj
+    ) as out_stream:
+        for member in members:
+            out_stream.addfile(member)
+    return b64encode(out_obj.getvalue())
 
 
 def run(request=None):
@@ -116,5 +157,11 @@ def run(request=None):
     commands = request.get("commands", [])
     lines = eval_commands(api_client, container, commands, source_base64)
     results = parse_output(lines)
+
+    distribution = request.get("dist", {})
+    output_tarball = retrieve_archive_base64(
+        api_client, container, distribution
+    )
+
     api_client.remove_container(container)
-    return results
+    return {"results": results, "output": output_tarball}
