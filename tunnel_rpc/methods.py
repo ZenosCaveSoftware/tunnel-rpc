@@ -123,7 +123,7 @@ def retrieve_archive_base64(api_client, container, distribution_config):
     )
 
     members = []
-    
+
     for obj in strm:
         tar_stream = tarfile.TarFile(fileobj=BytesIO(obj))
         members += [
@@ -131,7 +131,7 @@ def retrieve_archive_base64(api_client, container, distribution_config):
             for member in tar_stream.getmembers()
             if _is_artifact(member)
         ]
-    
+
     out_obj = BytesIO()
     with tarfile.TarFile(
             "output.tgz", "w", fileobj=out_obj
