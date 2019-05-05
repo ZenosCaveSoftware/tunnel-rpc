@@ -115,8 +115,7 @@ def retrieve_archive_base64(api_client, container, distribution_config):
     def _is_artifact(member):
         return any(
             fnmatch(member.name, os.path.join(base_path, artifact))
-            for artifact
-            in artifacts
+            for artifact in artifacts
         )
 
     if not artifacts:
@@ -126,20 +125,21 @@ def retrieve_archive_base64(api_client, container, distribution_config):
         container, os.path.join("/app/src", base_path)
     )
 
-    members = []
+    in_obj = b''
+    for chunk in strm:
+        in_obj += chunk
 
-    for obj in strm:
-        with tarfile.TarFile.open(fileobj=BytesIO(obj)) as tar_stream:
-            members += [
-                (member, tar_stream.extractfile(member))
-                for member in tar_stream.getmembers()
-                if _is_artifact(member)
-            ]
+    with tarfile.TarFile.open(fileobj=BytesIO(in_obj)) as tar_stream:
+        members = [
+            (member, tar_stream.extractfile(member))
+            for member in tar_stream.getmembers()
+            if _is_artifact(member)
+        ]
 
-    out_obj = BytesIO()
-    with tarfile.TarFile.open("out.tar", "w", fileobj=out_obj) as out_stream:
-        for member, data in members:
-            out_stream.addfile(member, fileobj=data)
+        out_obj = BytesIO()
+        with tarfile.TarFile.open(mode="w", fileobj=out_obj) as out_stream:
+            for member, data in members:
+                out_stream.addfile(member, fileobj=data)
     return b64encode(out_obj.getvalue()).decode('utf-8')
 
 
