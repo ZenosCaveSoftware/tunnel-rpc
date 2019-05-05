@@ -112,12 +112,6 @@ def retrieve_archive_base64(api_client, container, distribution_config):
     base_path = distribution_config.get("base_path", "")
     artifacts = distribution_config.get("artifacts", [])
 
-    def _is_artifact(member):
-        return any(
-            fnmatch(member.name, os.path.join(base_path, artifact))
-            for artifact in artifacts
-        )
-
     if not artifacts:
         return None
 
@@ -133,7 +127,10 @@ def retrieve_archive_base64(api_client, container, distribution_config):
         members = [
             (member, tar_stream.extractfile(member))
             for member in tar_stream.getmembers()
-            if _is_artifact(member)
+            if any(
+                fnmatch(member.name, os.path.join(base_path, artifact))
+                for artifact in artifacts
+            )
         ]
 
         out_obj = BytesIO()
