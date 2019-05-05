@@ -34,7 +34,7 @@ def create_app():
         req = request.get_data().decode()
         response = dispatch(req, debug=True)
         return Response(
-            str(response), response.http_status, mimetype="application/json"
+            str(response), 200, mimetype="application/json"
         )
 
     return app

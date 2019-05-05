@@ -113,7 +113,11 @@ def retrieve_archive_base64(api_client, container, distribution_config):
     artifacts = distribution_config.get("artifacts", [])
 
     def _is_artifact(member):
-        return any(fnmatch(member.name, os.path.join(base_path, artifact)) for artifact in artifacts)
+        return any(
+            fnmatch(member.name, os.path.join(base_path, artifact))
+            for artifact
+            in artifacts
+        )
 
     if not artifacts:
         return None
@@ -125,20 +129,19 @@ def retrieve_archive_base64(api_client, container, distribution_config):
     members = []
 
     for obj in strm:
-        tar_stream = tarfile.TarFile(fileobj=BytesIO(obj))
-        members += [
-            member
-            for member in tar_stream.getmembers()
-            if _is_artifact(member)
-        ]
+        with tarfile.TarFile.open(fileobj=BytesIO(obj)) as tar_stream:
+            members += [
+                (member, tar_stream.extractfile(member))
+                for member in tar_stream.getmembers()
+                if _is_artifact(member)
+            ]
 
     out_obj = BytesIO()
-    with tarfile.TarFile(
-            "output.tgz", "w", fileobj=out_obj
-    ) as out_stream:
-        for member in members:
-            out_stream.addfile(member)
+    with tarfile.TarFile.open("out.tar", "w", fileobj=out_obj) as out_stream:
+        for member, data in members:
+            out_stream.addfile(member, fileobj=data)
     return b64encode(out_obj.getvalue()).decode('utf-8')
+
 
 def run(request=None):
     """Runs commands in a docker container and parses the log output.
