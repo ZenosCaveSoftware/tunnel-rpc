@@ -2,7 +2,10 @@
 """Tests for Tunnel RPC methods.
 
 """
-from tunnel_rpc.methods import eval_commands, parse_output, run
+from json.decoder import JSONObject
+
+from tunnel_rpc.methods import eval_commands, parse_output, run, archiver, create_container
+from docker import APIClient
 
 
 def test_eval_commands(
@@ -88,3 +91,10 @@ def test_run():
         run({"commands": []})
     except Exception as err:  # pylint: disable=broad-except
         assert False, str(err)
+
+
+def test_archiver():
+    api_client = APIClient()
+    container = create_container(api_client())
+    info = archiver(api_client, container)
+    assert info.has("name"), "Archived data lacks name"
