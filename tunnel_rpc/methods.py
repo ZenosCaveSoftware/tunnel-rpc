@@ -3,14 +3,21 @@
 
     Includes any helper methods needed to run @method annotated rpc calls.
 
-    THe current calls are:
+    The current calls are:
 
         * run:  run arbitrary commands on a docker bash instance
                 with persistent state between commands.
 
 """
 import os
+import re
+import tarfile
+from io import BytesIO
+from fnmatch import fnmatch
+from base64 import b64decode, b64encode
+from collections import defaultdict
 from docker import APIClient
+
 
 __all__ = ["run"]
 
@@ -25,48 +32,46 @@ def create_container(api_client):
         (str) the container's id.
 
     """
-    container = api_client.create_container(
-        image="bash:latest",
-        stdin_open=True,
-        tty=True,
-        command=[
-            "bash",
-            "-c",
-            "while read CMD ; "
-            "do echo '$ '$CMD ; "
-            "eval $CMD ; echo $? ; done",
-        ],
+    return api_client.create_container(
+        image="zenoscave/tunnel-runner:latest", stdin_open=True
     )
-    api_client.start(container)
-    return container
 
 
-def eval_commands(client, cont, commands):
+def eval_commands(api_client, container, commands, source_base64=None):
     """Evaluates commands in a docker container.
 
     Keeps stdin open and runs commands on same environment.
 
     Args:
-        client (APIClient): API interaction client for a Docker host
-        cont (str): Container's ID used to run the commands
+        api_client (APIClient): API interaction client for a Docker host
+        container (str): Container's ID used to run the commands
         commands (List[str]): Commands to run
+        source_base64 (str): The base64 contents of a tar archive (optional)
 
     Returns:
         (str) The stdout/stderr combined output
 
     """
-    socket = client.attach_socket(cont, params={"stdin": 1, "stream": 1})
+    if source_base64:
+        tar_stream = b64decode(source_base64)
+        api_client.put_archive(container, path="/app/src", data=tar_stream)
+
+    api_client.start(container)
+
+    socket = api_client.attach_socket(
+        container, params={"stdin": 1, "stream": 1}
+    )
     file_descriptor = socket.fileno()
 
-    for cmd in commands:
+    for cmd in commands + ["exit"]:
+        cmd = cmd.replace("\n", " ; ")
         cmd += "\n"
         os.write(file_descriptor, cmd.encode("utf-8"))
     socket.close()
 
-    client.stop(cont)
-    client.wait(cont)
+    api_client.wait(container)
 
-    return client.logs(cont, stdout=True, stderr=True).decode()
+    return api_client.logs(container, stdout=True, stderr=True).decode()
 
 
 def parse_output(output):
@@ -79,23 +84,60 @@ def parse_output(output):
         (list) The contents of the terminal
 
     """
-    preamble = True
     commands = []
-    buffer = []
-    for line in output.rstrip("\r\n").split("\r\n"):
-        if line.startswith("$ "):
-            if preamble:
-                preamble = False
-            else:
-                commands.append(
-                    (buffer[0], "\n".join(buffer[1:-1]), buffer[-1])
-                )
-            buffer.clear()
-        buffer.append(line)
-    if buffer:
-        commands.append((buffer[0], "\n".join(buffer[1:-1]), buffer[-1]))
-        buffer.clear()
+    for command_text in output.replace("\r\n", "\n").split("---\n"):
+        command = defaultdict(list)
+        for line in command_text.split("\n"):
+            match = re.match(r"^\[([^\]]*)\] (.*)$", line)
+            if bool(match):
+                key, value = match.groups()
+                command[key].append(value)
+        if any(command):
+            commands.append(dict(command))
     return commands
+
+
+def retrieve_archive_base64(api_client, container, distribution_config):
+    """Retrieves any artifacts for distribution from a container after running
+
+    Args:
+        api_client (APIClient): API interaction client for a Docker host
+        container (str): Container's ID used to run the commands
+        distribution_config (dict): The specified distribution config
+
+    Returns:
+        (str) base64 encoded tarball stream containing distribution artifacts
+
+    """
+    base_path = distribution_config.get("base_path", "")
+    artifacts = distribution_config.get("artifacts", [])
+
+    if not artifacts:
+        return None
+
+    strm, _ = api_client.get_archive(
+        container, os.path.join("/app/src", base_path)
+    )
+
+    in_obj = b''
+    for chunk in strm:
+        in_obj += chunk
+
+    with tarfile.TarFile.open(fileobj=BytesIO(in_obj)) as tar_stream:
+        members = [
+            (member, tar_stream.extractfile(member))
+            for member in tar_stream.getmembers()
+            if any(
+                fnmatch(member.name, os.path.join(base_path, artifact))
+                for artifact in artifacts
+            )
+        ]
+
+        out_obj = BytesIO()
+        with tarfile.TarFile.open(mode="w", fileobj=out_obj) as out_stream:
+            for member, data in members:
+                out_stream.addfile(member, fileobj=data)
+    return b64encode(out_obj.getvalue()).decode('utf-8')
 
 
 def run(request=None):
@@ -110,7 +152,15 @@ def run(request=None):
     """
     api_client = APIClient()
     container = create_container(api_client)
-    lines = eval_commands(api_client, container, request.get("commands", []))
+    source_base64 = request.get("source", None)
+    commands = request.get("commands", [])
+    lines = eval_commands(api_client, container, commands, source_base64)
     results = parse_output(lines)
+
+    distribution = request.get("dist", {})
+    output_tarball = retrieve_archive_base64(
+        api_client, container, distribution
+    )
+
     api_client.remove_container(container)
-    return results
+    return {"results": results, "output": output_tarball}

@@ -1,5 +1,6 @@
 .idea/
 .vscode/
+htmlcov/
 __pycache__/
 *.pyc
 docs/build/

@@ -9,23 +9,24 @@ services:
 addons:
   sonarcloud:
     organization: zenoscave
-    token: "$SONAR_TOKEN"
+    token: 
+      secure: "$SONAR_TOKEN"
 
 before_install:
-  - pip install -U pip
-  - docker pull bash:latest
+  - bash ./prestart.sh
 
 install:
   - pip install -e '.[test]' -r requirements.txt coverage codecov
 
 script:
-  - pylint tunnel_rpc tests/*.py
+  - pylint tunnel_rpc tests/*.py main.py
   - flake8
   - make -C docs linkcheck
   - coverage erase
   - coverage run --branch --source=tunnel_rpc -m pytest
-  - coverage xml -i
-  - sonar-scanner
+  - coverage report -m
 
 after_success:
+  - coverage xml -i
+  - sonar-scanner
   - codecov
